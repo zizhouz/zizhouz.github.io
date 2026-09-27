@@ -1,0 +1,35 @@
+1
+00:00:00,000 --> 00:00:09,890
+Reading a poem about seasons Millie is reading a poem about the seasons of the year.
+
+2
+00:00:09,890 --> 00:00:12,585
+Here is the poem.
+
+3
+00:00:12,585 --> 00:00:27,310
+Seasons of the year Winter days are full of snow, when trees and flowers forget to grow, and the birds fly far away, to find a warm and sunny day.
+
+4
+00:00:27,310 --> 00:00:33,440
+The days of spring are windy and bright, a perfect time to fly a kite.
+
+5
+00:00:33,440 --> 00:00:39,450
+Bees and butterflies play among flowers, then hide from April showers.
+
+6
+00:00:39,450 --> 00:00:52,690
+Those sweet memories of summer days are about quiet streams and trees and shade, lazy afternoons by a pool, and eating ice-cream to feel cool.
+
+7
+00:00:52,690 --> 00:00:59,650
+Then autumn leaves turn brown, fall into piles upon the ground.
+
+8
+00:00:59,650 --> 00:01:06,580
+Farmers work to harvest crops, as the days get shorter and the temperature drops.
+
+9
+00:01:06,580 --> 00:01:12,840
+Soon the snowy season will begin, and it will be a new year once again.

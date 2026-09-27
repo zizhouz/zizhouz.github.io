@@ -1,0 +1,47 @@
+1
+00:00:00,540 --> 00:00:02,280
+B2.
+
+2
+00:00:02,280 --> 00:00:13,540
+Simon is listening to a weather forecast for the four cities in part B1, listen with him and complete the table below.
+
+3
+00:00:13,540 --> 00:00:18,750
+Good morning and welcome to world weather today.
+
+4
+00:00:18,750 --> 00:00:24,070
+We start in Moscow on a cold and snowy December morning.
+
+5
+00:00:24,070 --> 00:00:33,860
+The temperature is minus 10 to minus 5 degrees Celsius, so wear lots of warm clothes when you go outside.
+
+6
+00:00:33,860 --> 00:00:38,890
+Next we head over to Shanghai on a sunny morning.
+
+7
+00:00:38,890 --> 00:00:47,610
+The temperature is 7 to 9 degrees Celsius and there's a cool wind, so wear a light scarf.
+
+8
+00:00:47,610 --> 00:00:51,660
+Now we move to bright and sunny Cairo.
+
+9
+00:00:51,660 --> 00:01:00,100
+The temperature is 14 to 16 degrees Celsius, so it's fine to wear a light jacket.
+
+10
+00:01:00,100 --> 00:01:05,820
+And finally, it's an unusual day in Sydney because it's raining.
+
+11
+00:01:05,820 --> 00:01:17,130
+It's still hot with a temperature of 26 to 29 degrees Celsius, but you'll need your umbrella if you go outside. That's it.
+
+12
+00:01:17,130 --> 00:01:18,520
+Have a great day!

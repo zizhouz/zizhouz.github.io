@@ -1,0 +1,71 @@
+1
+00:00:00,670 --> 00:00:14,080
+B1 Listen to Lily, a student from grade 9, talking to the Class 1, grade 8 students, about her experience of learning English.
+
+2
+00:00:14,080 --> 00:00:19,990
+Write a T if a sentence is true, or an F if it is false.
+
+3
+00:00:19,990 --> 00:00:23,345
+Then correct the false ones.
+
+4
+00:00:23,345 --> 00:00:27,130
+Hi, my name's Lily.
+
+5
+00:00:27,130 --> 00:00:29,320
+I'm from grade 9.
+
+6
+00:00:29,320 --> 00:00:33,620
+I have some advice on English learning for you.
+
+7
+00:00:33,620 --> 00:00:38,690
+At first, I found learning English really difficult.
+
+8
+00:00:38,690 --> 00:00:43,590
+But then my teacher gave me some great tips.
+
+9
+00:00:43,590 --> 00:00:50,580
+First, try to speak English in your daily life as much as possible.
+
+10
+00:00:50,580 --> 00:00:53,210
+Listen to English songs.
+
+11
+00:00:53,210 --> 00:00:57,620
+Watch TV and films in English.
+
+12
+00:00:57,620 --> 00:01:02,900
+Read English books and speak English often.
+
+13
+00:01:02,900 --> 00:01:06,170
+I also have a language partner.
+
+14
+00:01:06,170 --> 00:01:11,170
+We meet every weekend and speak English for an hour.
+
+15
+00:01:11,170 --> 00:01:13,970
+That really helps.
+
+16
+00:01:13,970 --> 00:01:19,820
+Second, carry a notebook to help you learn new words.
+
+17
+00:01:19,820 --> 00:01:27,290
+When you come across a new word, write it down and pay attention to its meaning.
+
+18
+00:01:27,290 --> 00:01:31,760
+These tips are some easy ways to improve your English.
