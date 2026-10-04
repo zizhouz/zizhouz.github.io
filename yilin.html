@@ -22,6 +22,8 @@
        so both states sit dead-centre in the button. */
     --ico-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='black' d='M2.7 2 L7.3 5 L2.7 8 Z'/%3E%3C/svg%3E");
     --ico-pause: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='1.2' y='2' width='3' height='6' fill='black'/%3E%3Crect x='5.8' y='2' width='3' height='6' fill='black'/%3E%3C/svg%3E");
+    /* The dictation hand-off: a pencil, drawn and centred the same way. */
+    --ico-pen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath fill='black' d='M2.1 6.4 L6.9 1.6 L8.4 3.1 L3.6 7.9 Z'/%3E%3Cpath fill='black' d='M1.6 8.4 L2.1 6.4 L3.6 7.9 Z'/%3E%3C/svg%3E");
   }
 
   @media (prefers-color-scheme: dark) {
@@ -111,11 +113,17 @@
 
   ul.tracks { list-style: none; }
 
-  .track + .track .row { border-top: 1px solid var(--line); }
+  /* The row is the play control and the dictate button rides beside it, so the
+     two are siblings — a button nested in a button is not valid. That puts the
+     row's chrome (separator, playing tint) on the list item instead, where it
+     now spans both. */
+  .track { display: flex; align-items: stretch; }
+  .track + .track { border-top: 1px solid var(--line); }
   .track.extra { background: color-mix(in srgb, var(--chip-soft) 45%, transparent); }
 
   .row {
-    display: flex; align-items: center; gap: 12px; width: 100%;
+    flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center; gap: 12px;
     font: inherit; color: inherit; text-align: left; cursor: pointer;
     background: none; border: 0; padding: 11px var(--gutter); transition: background .12s;
     -webkit-tap-highlight-color: transparent;
@@ -149,6 +157,31 @@
     mask: var(--ico-play) no-repeat center / contain;
     transition: background .15s;
   }
+  /* The dictation hand-off: a second circle next to the play one. The button is
+     taller than its circle — it stretches to the row and pads the difference —
+     so the tap target is the full row height on a phone, not a 22px dot. */
+  .dictate {
+    flex: 0 0 auto; display: flex; align-items: center;
+    padding: 0 var(--gutter) 0 8px;
+    background: none; border: 0; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dictate .ico {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .15s;
+  }
+  .dictate .ico::after {
+    content: ""; width: 10px; height: 10px; background: var(--muted);
+    -webkit-mask: var(--ico-pen) no-repeat center / contain;
+    mask: var(--ico-pen) no-repeat center / contain;
+    transition: background .15s;
+  }
+  /* Ring the circle, not the full-height button it sits in. */
+  .dictate:focus-visible { outline: none; }
+  .dictate:focus-visible .ico { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   /* Hover feedback is desktop-only: on a touchscreen it latches after a tap and
      a row stays lit. `:active` gives the same acknowledgement, for as long as
      the finger is down, on either input. */
@@ -156,15 +189,19 @@
     .row:hover { background: var(--accent-soft); }
     .row:hover .play { border-color: var(--accent); }
     .row:hover .play::after { background: var(--accent); }
+    .dictate:hover .ico { border-color: var(--accent); }
+    .dictate:hover .ico::after { background: var(--accent); }
     .tab:hover { border-color: var(--accent); color: var(--accent); }
     .skip:hover { border-color: var(--accent); color: var(--accent); }
   }
   .row:active { background: var(--accent-soft); }
   .row:active .play { border-color: var(--accent); }
   .row:active .play::after { background: var(--accent); }
+  .dictate:active .ico { border-color: var(--accent); }
+  .dictate:active .ico::after { background: var(--accent); }
   .tab:active { border-color: var(--accent); color: var(--accent); }
 
-  .track.playing .row { background: var(--accent-soft); }
+  .track.playing { background: var(--accent-soft); }
   .track.playing .name { font-weight: 600; color: var(--accent); }
   .track.playing .play { border-color: var(--accent); }
   .track.playing .play::after {
@@ -247,7 +284,7 @@
 <div class="wrap">
   <header class="page">
     <h1>译林版 8A 英语音频<span class="ver">74 个文件</span></h1>
-    <p>按单元排列 — 课本录音、单词表、练习册。点顶部标签切换单元，点任意一行即可播放。</p>
+    <p>按单元排列 — 课本录音、单词表、练习册。点顶部标签切换单元，点任意一行即可播放，点行尾的铅笔进入听写。</p>
   </header>
 
   <nav class="tabs" id="tabs" aria-label="单元导航"></nav>
@@ -1011,6 +1048,28 @@
     });
   });
 
+  /* ---------- dictation hand-off ---------- */
+
+  // One pencil per track, opening the dictation workbench on that clip. The src
+  // is relative, so resolve it against the page first: ?audio= wants an absolute
+  // URL, and dictation.html derives the .srt by swapping this one's extension.
+  tracks.forEach(function (track) {
+    var btn = document.createElement('button');
+    var ico = document.createElement('span');
+    ico.className = 'ico';
+    ico.setAttribute('aria-hidden', 'true');
+    btn.type = 'button';
+    btn.className = 'dictate';
+    btn.title = '听写这一段';
+    btn.setAttribute('aria-label', '听写：' + track.dataset.title);
+    btn.appendChild(ico);
+    btn.addEventListener('click', function () {
+      var src = new URL(track.dataset.src, location.href).href;
+      location.href = 'dictation.html?audio=' + encodeURIComponent(src);
+    });
+    track.appendChild(btn);
+  });
+
   function step(delta) {
     // Only walk the unit on screen; tracks behind another tab are not in play.
     var visible = tracks.filter(function (t) {
@@ -1027,7 +1086,10 @@
   audio.addEventListener('ended', function () { step(1); });
 
   document.addEventListener('keydown', function (e) {
-    if (e.target.classList && e.target.classList.contains('tab')) return;   // tabs own their keys
+    // Tabs and dictate buttons own their keys; Space on a focused one is its
+    // own activation, and handling it here too would toggle playback twice.
+    if (e.target.classList && (e.target.classList.contains('tab') ||
+                               e.target.classList.contains('dictate'))) return;
     if (e.key === ' ' && current !== -1) {
       e.preventDefault();
       if (audio.paused) audio.play().catch(function () {}); else audio.pause();
