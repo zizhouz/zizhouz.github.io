@@ -4,7 +4,7 @@
   源文件：standalone/src/page.template.html、standalone/src/app.js
           + frontend/src/style.css、frontend/public/fonts/fonts.css、frontend/src/main.js
   重新生成：node standalone/src/generate.mjs
-  生成时间：2026-09-27T00:42:36.626Z · 源提交 9bb78b2
+  生成时间：2026-10-04T13:05:14.609Z · 源提交 c607588
 -->
 <html lang="zh-CN">
   <head>
@@ -95,8 +95,21 @@
     <!--
       style.css 隐藏原生文件输入的规则是 #fileInput{display:none}，绑定在 id 上，
       而独立版多了一个 SRT 输入框。在这里补一条，避免为此去改 frontend/ 的公共样式。
+      下面几条同理：URL 参数模式是独立版独有的入口，样式留在产物里。
     -->
-    <style>#srtInput{display:none}</style>
+    <style>#srtInput{display:none}
+/* ?audio=…&srt=… 的提示条。detail 里的换行靠 pre-line，URL 不能折在中间。
+   [hidden] 要显式写成 display:none —— 元素本身有 margin/padding，一旦将来给它加了
+   display，UA 那条 [hidden]{display:none} 就会被压过去。 */
+.url-note{margin:0 0 16px;padding:11px 15px;border-left:3px solid var(--brass);border-radius:0 var(--radius) var(--radius) 0;background:rgba(184,132,46,.1)}
+.url-note[hidden]{display:none}
+.url-note.error{border-left-color:var(--pencil);background:var(--pencil-tint)}
+.url-note-title{margin:0;font-size:13.5px;font-weight:600}
+.url-note-detail{margin:6px 0 0;color:var(--ink-soft);font-size:12px;line-height:1.7;white-space:pre-line;word-break:break-all}
+.url-note.error .url-note-detail{color:var(--ink)}
+/* 提示条会把材料页顶高，而 .main 是 overflow:hidden。放开纵向滚动，并用 safe center
+   兜住溢出 —— 普通的 center 在溢出时会把顶部裁掉且滚不回去。 */
+.material-page{justify-content:safe center;overflow-y:auto}</style>
   </head>
   <body>
     <div class="app" id="materialScreen">
@@ -104,6 +117,7 @@
       <main class="main material-main">
         <div class="page-col material-page">
           <div class="head"><h1 class="title">准备学习材料</h1><p class="subtitle">选择音频和对应的 .srt 字幕，开始逐句听写。全部在本机完成，不需要联网。</p></div>
+          <div class="url-note" id="urlNote" hidden><p class="url-note-title" id="urlNoteTitle"></p><p class="url-note-detail" id="urlNoteDetail"></p></div>
           <div class="slots">
             <div class="slot">
               <div class="slot-label">音频文件 <span class="req-mark">必需</span></div>
@@ -188,6 +202,9 @@ const srtDzMain = document.querySelector('#srtDzMain');
 const srtDzSub = document.querySelector('#srtDzSub');
 const generateBtn = document.querySelector('#generateBtn');
 const materialStatus = document.querySelector('#materialStatus');
+const urlNote = document.querySelector('#urlNote');
+const urlNoteTitle = document.querySelector('#urlNoteTitle');
+const urlNoteDetail = document.querySelector('#urlNoteDetail');
 const audio = document.querySelector('#audio');
 const userInput = document.querySelector('#userInput');
 const marksLayer = document.querySelector('#marksLayer');
@@ -208,7 +225,13 @@ const sessionMeta = document.querySelector('#sessionMeta');
 const state = {
   file: null,
   objectUrl: null,
+  // 本地 File 与远程 URL 在 loadLocalLesson 里收敛成这三个：学习流程只读它们，
+  // 不关心音频是从磁盘来的还是从网络上来的。
+  audioSrc: null,
+  audioName: null,
   audioKey: null,
+  // URL 参数模式下的音频地址。state.file 非空即代表用户改用手选文件，届时它归位。
+  sourceUrl: null,
   lesson: null,
   current: 0,
   reviewPlayingIdx: null,
@@ -389,6 +412,22 @@ function setMaterialStatus(message, error = false) {
   materialStatus.classList.toggle('error', error);
 }
 
+// URL 参数模式的提示条。kind ∈ {'loading','error'}；detail 里的换行靠 CSS 的
+// white-space:pre-line 呈现，所以这里直接拼 '\n'。
+function setUrlNote(kind, title, detail = '') {
+  urlNote.hidden = false;
+  urlNote.className = `url-note ${kind}`;
+  urlNoteTitle.textContent = title;
+  urlNoteDetail.textContent = detail;
+  urlNoteDetail.hidden = !detail;
+}
+
+function clearUrlNote() {
+  urlNote.hidden = true;
+  urlNoteTitle.textContent = '';
+  urlNoteDetail.textContent = '';
+}
+
 /* ---------------------------------------------------------------- SRT 解析 */
 
 // 宽容到各轴：可选小时、`.` 或 `,` 小数分隔符、`-->` 两侧任意空白、
@@ -469,6 +508,20 @@ function parseSrt(text) {
 const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'aiff', 'aif', 'mp4'];
 const MAX_SRT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * SRT 文本 → 句子。本地文件和远程 URL 两个入口共用，保证解析与校验规则只有一份。
+ * @returns {{cues: Array, skipped: number, mojibake: boolean}|{error: string}}
+ */
+function readSrtText(text) {
+  if (new Blob([String(text ?? '')]).size > MAX_SRT_BYTES) {
+    return { error: '字幕文件过大，可能不是 SRT 文件。' };
+  }
+  const { cues, warnings, skipped } = parseSrt(text);
+  if (warnings.length) console.warn('SRT 解析提示：', warnings);
+  if (!cues.length) return { error: 'SRT 中没有解析到可用的字幕行，请检查文件格式。' };
+  return { cues, skipped, mojibake: cues.some((cue) => cue.text.includes('�')) };
+}
+
 function classifyFile(file) {
   const name = String(file.name || '').toLowerCase();
   const type = String(file.type || '').toLowerCase();
@@ -480,6 +533,9 @@ function classifyFile(file) {
 function markAudioSelected(file) {
   if (!file) return;
   state.file = file;
+  // 手动选了本地音频就退出 URL 模式：resolveLessonSource 也以 state.file 优先。
+  state.sourceUrl = null;
+  clearUrlNote();
   dropzone.classList.add('filled');
   dzMain.textContent = file.name;
   dzSub.textContent = '点击可重新选择';
@@ -500,24 +556,23 @@ async function markSrtSelected(file) {
     return;
   }
 
-  const { cues, warnings, skipped } = parseSrt(text);
-  if (warnings.length) console.warn('SRT 解析提示：', warnings);
-  if (!cues.length) {
+  const parsed = readSrtText(text);
+  if (parsed.error) {
     srtCues = [];
     srtDropzone.classList.remove('filled');
     srtDzMain.textContent = '选择 .srt 字幕文件';
     srtDzSub.textContent = '点击选择 .srt，或拖到这里';
-    setMaterialStatus('SRT 中没有解析到可用的字幕行，请检查文件格式。', true);
+    setMaterialStatus(parsed.error, true);
     refreshStartButton();
     return;
   }
 
+  const { cues, skipped } = parsed;
   srtCues = cues;
   srtDropzone.classList.add('filled');
   srtDzMain.textContent = file.name;
   srtDzSub.textContent = skipped ? `${cues.length} 句（略过 ${skipped} 处）` : `${cues.length} 句`;
-  const mojibake = cues.some((cue) => cue.text.includes('�'));
-  if (mojibake) {
+  if (parsed.mojibake) {
     setMaterialStatus(`已载入 ${cues.length} 句，跳过 ${skipped} 处。字幕文件可能不是 UTF-8 编码，请另存为 UTF-8。`);
   } else if (skipped) {
     setMaterialStatus(`已载入 ${cues.length} 句，跳过 ${skipped} 处无法解析的字幕行。`);
@@ -599,11 +654,24 @@ async function startLesson() {
 }
 generateBtn.addEventListener('click', startLesson);
 
-async function loadLocalLesson() {
+// 音频来源收敛点：之后的一切都只认 audioSrc / audioName / audioKey。
+function resolveLessonSource() {
   const file = state.file;
+  if (!file) {
+    // 远程音频没有 size/mtime，URL 本身就是最合适的进度键 —— 同址换内容属于重新部署，
+    // 那时旧进度按 URL 命中也不算错。
+    return { src: state.sourceUrl, key: `url:${state.sourceUrl}`, name: urlBaseName(state.sourceUrl) };
+  }
   if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
   state.objectUrl = URL.createObjectURL(file);
-  state.audioKey = `${file.name}:${file.size}:${file.lastModified}`;
+  return { src: state.objectUrl, key: `${file.name}:${file.size}:${file.lastModified}`, name: file.name };
+}
+
+async function loadLocalLesson() {
+  const source = resolveLessonSource();
+  state.audioSrc = source.src;
+  state.audioName = source.name;
+  state.audioKey = source.key;
   state.lesson = {
     cues: srtCues,
     transcript: srtCues.map((cue) => cue.text).join(' '),
@@ -639,7 +707,7 @@ async function loadLocalLesson() {
     // 存储不可用（例如 file:// 下 Chrome 禁用 IndexedDB）时，新会话照常可用。
   }
 
-  audio.src = state.objectUrl;
+  audio.src = state.audioSrc;
   audio.playbackRate = Number(speedSelect.value);
   renderReel();
   updateSessionMeta();
@@ -668,12 +736,157 @@ function updateSessionMeta() {
   const total = state.lesson.duration;
   const cues = state.lesson.cues;
   const lastEnd = cues.length ? cues[cues.length - 1].end : 0;
-  const parts = [state.file?.name || '', `${cues.length} 句`];
+  const parts = [state.audioName || '', `${cues.length} 句`];
   if (Number.isFinite(total)) parts.push(formatClock(total));
   // 典型的「字幕来自另一个剪辑版本」错误，否则在应用内几乎无从诊断。
   if (Number.isFinite(total) && lastEnd > total + 1) parts.push('字幕比音频长');
   sessionMeta.textContent = parts.filter(Boolean).join(' · ');
 }
+
+/* ------------------------------------------------------------ URL 参数模式 */
+
+// ?audio=<音频 URL>&srt=<字幕 URL>：跳过选文件，直接开练。srt 可以省略，那时按音频
+// URL 推导（扩展名换成 .srt）。两个地址都验通才进练习页，任一失败就留在材料页报错，
+// 并且照常可以用下面的文件槽位手动兜底。
+
+const AUDIO_PROBE_TIMEOUT_MS = 15000;
+
+// 查询串和锚点一般是加在音频上的版本戳/签名，套到字幕 URL 上只会指向不存在的文件，
+// 所以派生时丢掉。
+function deriveSrtUrl(audioUrl) {
+  const path = audioUrl.split(/[?#]/)[0];
+  const dot = path.lastIndexOf('.');
+  // 最后一个点落在最后一个斜杠之前，说明它是目录名里的点（/a.b/song），不是扩展名。
+  return (dot > path.lastIndexOf('/') ? path.slice(0, dot) : path) + '.srt';
+}
+
+// URL 末段充当显示名与导出文件名。解码失败时原样返回，总好过抛错。
+function urlBaseName(url) {
+  const path = String(url || '').split(/[?#]/)[0];
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  if (!last) return path || String(url || '');
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+/**
+ * 用 <audio> 探针验证 URL 能不能真的加载。媒体元素不受 CORS 约束，fetch 够不着的
+ * 跨域地址只有它能验；代价是拿不到状态码，只能回答「行 / 不行」。
+ */
+function probeAudioPlayable(url) {
+  return new Promise((resolve) => {
+    const probe = document.createElement('audio');
+    probe.preload = 'metadata';
+    let settled = false;
+    const finish = (playable) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      // 先摘 src 再 load()，否则这次连接会一直挂在网络层。
+      probe.removeAttribute('src');
+      probe.load();
+      resolve(playable);
+    };
+    const timer = window.setTimeout(() => finish(false), AUDIO_PROBE_TIMEOUT_MS);
+    probe.addEventListener('loadedmetadata', () => finish(true), { once: true });
+    probe.addEventListener('error', () => finish(false), { once: true });
+    probe.src = url;
+  });
+}
+
+/**
+ * 远程音频验真，先 HEAD 后探针：
+ *   · HEAD 能给出确定的状态码，只有它分得清「不存在」和「在但放不出来」；
+ *     跨域缺 CORS 头或 file:// 下 fetch 拿不到响应，这一步就作罢。
+ *   · 探针是兜底，也是唯一能发现「解码不支持」的检查。
+ * @returns {{ok: true}|{ok: false, reason: 'missing'|'undecodable'|string}}
+ */
+async function checkRemoteAudio(url) {
+  let status = null;
+  try {
+    const response = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    // 405/501 是服务器不支持 HEAD，这个状态码不能当成资源不存在。
+    if (response.status !== 405 && response.status !== 501) status = response.status;
+  } catch {
+    // 没拿到 HTTP 响应，状态码这一路不作数。
+  }
+  if (status !== null && (status < 200 || status >= 300)) {
+    return { ok: false, reason: status === 404 || status === 410 ? 'missing' : `HTTP ${status}` };
+  }
+  if (await probeAudioPlayable(url)) return { ok: true };
+  // HEAD 说在、探针说不行 —— 报「放不出来」而非「不存在」，两者的排查方向完全不同。
+  return { ok: false, reason: status === null ? 'missing' : 'undecodable' };
+}
+
+function audioFailureText(reason) {
+  if (reason === 'undecodable') return '音频文件存在，但浏览器无法播放（格式不受支持？）';
+  if (reason === 'missing') return '音频文件不存在，或跨域且不允许访问';
+  return `音频文件无法访问（${reason}）`;
+}
+
+async function fetchSrtText(url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  // 先看响应头挡住超大文件，省得白白读进内存。
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_SRT_BYTES) throw new Error('文件过大');
+  return response.text();
+}
+
+async function startFromUrl(audioUrl, srtUrl) {
+  generateBtn.disabled = true;
+  setMaterialStatus('');
+  setUrlNote('loading', '正在检查音频与字幕…', `音频 ${audioUrl}\n字幕 ${srtUrl}`);
+
+  const [audioCheck, srtAttempt] = await Promise.all([
+    checkRemoteAudio(audioUrl),
+    fetchSrtText(srtUrl).then((text) => ({ text }), (error) => ({ error })),
+  ]);
+  const parsed = srtAttempt.error ? null : readSrtText(srtAttempt.text);
+
+  const problems = [];
+  if (!audioCheck.ok) problems.push(audioFailureText(audioCheck.reason));
+  if (srtAttempt.error) problems.push(`字幕文件不存在或无法访问：${srtUrl}`);
+  else if (parsed.error) problems.push(`字幕文件无法解析：${srtUrl}\n（${parsed.error}）`);
+
+  if (problems.length) {
+    setUrlNote('error', '无法开始听写', `${problems.join('\n')}\n\n也可以在下面手动选择本地文件。`);
+    refreshStartButton();
+    return;
+  }
+
+  // 槽位照实填上远程来源：既不显得空着没人管，也仍然是手选文件的入口。
+  srtCues = parsed.cues;
+  state.sourceUrl = audioUrl;
+  dropzone.classList.add('filled');
+  dzMain.textContent = urlBaseName(audioUrl);
+  dzSub.textContent = '来自 URL 参数';
+  srtDropzone.classList.add('filled');
+  srtDzMain.textContent = urlBaseName(srtUrl);
+  srtDzSub.textContent = parsed.skipped
+    ? `${parsed.cues.length} 句（略过 ${parsed.skipped} 处）· 来自 URL 参数`
+    : `${parsed.cues.length} 句 · 来自 URL 参数`;
+  clearUrlNote();
+
+  try {
+    await loadLocalLesson();
+  } catch (error) {
+    state.sourceUrl = null;
+    setUrlNote('error', '无法开始听写', error?.message || '加载失败，请重试。');
+  }
+}
+
+// 参数解析放在最后：这时 app.js 的顶层声明都已执行完，startFromUrl 依赖的一切都就位了。
+(function initUrlMode() {
+  const params = new URLSearchParams(window.location.search);
+  const audioUrl = (params.get('audio') || '').trim();
+  if (!audioUrl) return;
+  const srtUrl = (params.get('srt') || '').trim() || deriveSrtUrl(audioUrl);
+  void startFromUrl(audioUrl, srtUrl);
+})();
 
 /* ---------------------------------------------------------- 练习主流程 */
 
@@ -1001,7 +1214,10 @@ function resetMaterial() {
   if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
   state.file = null;
   state.objectUrl = null;
+  state.audioSrc = null;
+  state.audioName = null;
   state.audioKey = null;
+  state.sourceUrl = null;
   state.lesson = null;
   srtCues = [];
   reviewData = [];
@@ -1015,6 +1231,7 @@ function resetMaterial() {
   srtDzSub.textContent = '点击选择 .srt，或拖到这里';
   generateBtn.disabled = true;
   setMaterialStatus('');
+  clearUrlNote();
 }
 document.querySelector('#switchMaterialLink').addEventListener('click', () => {
   settingsSheet.classList.remove('open');
@@ -1152,7 +1369,7 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') cl
 
 // 导出文件名默认与音频同名：去掉扩展名，并替换文件系统不接受的字符。
 function exportBaseName() {
-  const base = (state.file?.name || '')
+  const base = (state.audioName || '')
     .replace(/\.[^./\\]+$/, '')
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/^[.\s]+|[.\s]+$/g, '');
