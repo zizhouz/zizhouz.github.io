@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>错题重做 · 打印工具</title>
+
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']]
+  },
+  svg: { fontCache: 'global' },
+  options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }
+};
+</script>
+<!-- MathJax 与字体都放在 assets/ 下随仓库一起走，不联网也能正常渲染和打印。
+     升级这两个依赖就是替换 assets/ 里对应的文件，不用改这里。 -->
+<script src="assets/mathjax/tex-svg.js" id="mathjax-script" async></script>
+
+<!-- 配图里的数学标签字体（点 A/B、线 l₁ 等）。preload 是为了让"打开页面就点打印"
+     时字体已经就位，否则打印预览会先用 Times New Roman 排一遍。 -->
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="assets/fonts/stix-two-text-latin-400-normal.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="assets/fonts/stix-two-text-latin-400-italic.woff2">
+
+<style>
+  /* STIX Two Text：Times 系的数学字体，供配图里的字母标签使用。
+     斜体是单独一个 face——标签的正/斜由数据里 SVG 自己写的 font-style 决定
+     （写法约定见 README 第三节的 Figure 说明），这里只提供字体。
+     字体文件在 assets/fonts/ 下，随仓库一起走，不需要联网。 */
+  @font-face{
+    font-family: 'STIX Two Text';
+    src: url('assets/fonts/stix-two-text-latin-400-normal.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face{
+    font-family: 'STIX Two Text';
+    src: url('assets/fonts/stix-two-text-latin-400-italic.woff2') format('woff2');
+    font-weight: 400; font-style: italic; font-display: swap;
+  }
+
+  :root{
+    --paper:#f6f5f0;
+    --paper-card:#ffffff;
+    --ink:#202a3b;
+    --ink-soft:#5a6478;
+    --ink-faint:#8b93a3;
+    --line:#dcd7c8;
+    --line-soft:#e7e3d6;
+    --accent:#1f6f5c;
+    --accent-dark:#164f42;
+    --accent-tint:#e5f0ec;
+    --danger:#9a3324;
+    --danger-tint:#f5e6e2;
+    --radius-s:3px;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --serif: "Songti SC", "STSong", "SimSun", "Noto Serif SC", Georgia, serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button{ font-family: inherit; cursor:pointer; }
+
+  /* ---------- 顶部工具栏 ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+    position: sticky; top:0; z-index:20;
+  }
+  .topbar h1{
+    font-size: 17px; font-weight: 600; margin:0; letter-spacing:.2px;
+  }
+  .topbar .sub{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+  .topbar-right{ display:flex; align-items:center; gap:12px; }
+
+  .pill{
+    font-size:12px; color:var(--ink-soft);
+    background:var(--paper-card); border:1px solid var(--line);
+    border-radius:999px; padding:4px 12px;
+  }
+
+  .btn{
+    border:1px solid var(--line); background:var(--paper-card);
+    color:var(--ink); padding:8px 16px; border-radius:var(--radius-s);
+    font-size:13px; font-weight:500; transition: background .12s, border-color .12s;
+  }
+  .btn:hover{ border-color: var(--ink-faint); }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .btn-primary{
+    background: var(--accent); border-color:var(--accent); color:#fff;
+  }
+  .btn-primary:hover{ background: var(--accent-dark); border-color:var(--accent-dark); }
+  .btn-primary:disabled{ background:#b9c4bf; border-color:#b9c4bf; cursor:not-allowed; }
+  .btn-ghost{ background:transparent; border-color:transparent; color:var(--ink-soft); }
+  .btn-sm{ padding:5px 12px; font-size:12px; }
+  .btn-ghost:hover{ color:var(--ink); }
+  .btn-danger-text{ background:transparent; border:none; color:var(--danger); font-size:12px; padding:2px 6px; }
+
+  /* ---------- 拖拽加载区 ---------- */
+  #dropzone{
+    margin: 40px auto; max-width: 560px;
+    border: 1.5px dashed var(--line-soft);
+    border-radius: 6px;
+    padding: 48px 32px;
+    text-align:center;
+    background: var(--paper-card);
+  }
+  #dropzone.dragover{ border-color: var(--accent); background: var(--accent-tint); }
+  #dropzone h2{ font-size:16px; margin: 0 0 8px; }
+  #dropzone p{ font-size:13px; color:var(--ink-soft); line-height:1.7; margin: 0 0 20px; }
+  #dropzone .file-status{
+    display:flex; justify-content:center; gap:24px; margin-top:24px; font-size:12px;
+  }
+  #dropzone .autoload-note{
+    display:none; margin-top:18px; padding:10px 12px; text-align:left;
+    font-size:12px; line-height:1.8; color:var(--danger);
+    background:var(--danger-tint); border:1px solid #e6cfc9; border-radius:var(--radius-s);
+  }
+  #dropzone .autoload-note code{
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px;
+    background:#fff; padding:0 3px; border-radius:2px;
+  }
+  /* 题库里解析失败的行在这里报出来：坏行 = 少一道题，只写进控制台等于没报 */
+  .bank-issues{
+    display:none; margin-top:6px; padding:6px 9px; max-width:560px;
+    font-size:11.5px; line-height:1.7; text-align:left; color:var(--danger);
+    background:var(--danger-tint); border:1px solid #e6cfc9; border-radius:var(--radius-s);
+    white-space:pre-wrap;
+  }
+  .file-status .ok{ color: var(--accent); }
+  .file-status .missing{ color: var(--ink-faint); }
+  #fileInput{ display:none; }
+
+  /* ---------- 三栏布局 ---------- */
+  .layout{
+    display:grid;
+    grid-template-columns: 220px 1fr 300px;
+    gap: 0;
+    align-items:start;
+    min-height: calc(100vh - 58px);
+  }
+  .col{ padding: 18px 20px; }
+  .filters{ border-right:1px solid var(--line); position:sticky; top:58px; height: calc(100vh - 58px); overflow-y:auto; }
+  .queue{ border-left:1px solid var(--line); position:sticky; top:58px; height: calc(100vh - 58px); overflow-y:auto; display:flex; flex-direction:column; }
+
+  .filter-block{ margin-bottom: 22px; }
+  .filter-title{ font-size:12px; color:var(--ink-faint); margin-bottom:8px; font-weight:600; }
+  .subject-item{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 10px; border-radius:var(--radius-s); font-size:13px; cursor:pointer;
+    color: var(--ink-soft);
+  }
+  .subject-item:hover{ background: var(--line-soft); }
+  .subject-item.active{ background: var(--accent-tint); color: var(--accent-dark); font-weight:600; }
+  .subject-item .count{ font-size:11px; color:var(--ink-faint); }
+  .subject-item.active .count{ color: var(--accent-dark); }
+
+  .tag-list{ display:flex; flex-wrap:wrap; gap:6px; }
+  .tag-chip{
+    font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--line);
+    background:var(--paper-card); color:var(--ink-soft); cursor:pointer; user-select:none;
+  }
+  .tag-chip:hover{ border-color: var(--ink-faint); }
+  .tag-chip.active{ background: var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* ---------- 题目列表 ---------- */
+  .list-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .list-header .count{ font-size:13px; color:var(--ink-soft); }
+  .problem-card{
+    display:flex; gap:12px; padding:14px 4px; border-bottom:1px solid var(--line-soft);
+  }
+  .problem-card input[type=checkbox]{ margin-top:4px; width:16px; height:16px; accent-color: var(--accent); flex-shrink:0; }
+  .problem-card .body{ flex:1; min-width:0; }
+  .problem-card .meta-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
+  .badge-num{ font-size:11px; color:var(--ink-faint); font-family: var(--sans); }
+  .badge-subject{ font-size:11px; padding:2px 8px; border-radius:999px; background:var(--line-soft); color:var(--ink-soft); }
+  .badge-tag{ font-size:11px; padding:2px 8px; border-radius:999px; background:var(--accent-tint); color:var(--accent-dark); }
+  .badge-source{ font-size:11px; color:var(--ink-faint); }
+  .problem-card .stem{ font-family: var(--serif); font-size:14px; line-height:1.75; color:var(--ink); }
+  /* 备注（metadata.notes）：多为提取时的存疑点，只在选题页显示，样式刻意做得比题干轻 */
+  .problem-card .notes{
+    margin-top:10px; padding:6px 10px;
+    font-size:12px; line-height:1.75; color:var(--ink-soft);
+    background:var(--paper); border-left:2px solid var(--line);
+    border-radius:0 var(--radius-s) var(--radius-s) 0;
+  }
+  .problem-card .notes .notes-label{
+    font-size:11px; color:var(--ink-faint); margin-right:6px; letter-spacing:.5px;
+  }
+  .problem-card .thumb-row{ display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .problem-card .thumb{ border:1px solid var(--line-soft); border-radius:2px; padding:2px; background:#fff; }
+  .problem-card .thumb svg, .problem-card .thumb img{ height:3.5cm; width:auto; max-width:100%; display:block; }
+
+  /* ---------- 配图里的数学标签字体 ----------
+     配图 SVG 是内联进本文档的（缩略图与打印区都是 innerHTML 塞进来的），所以这里
+     一条 CSS 就能盖掉 SVG 里写死的 font-family="sans-serif"——presentation
+     attribute 的优先级低于任何 CSS 规则，历史配图不用改数据也跟着换字体。
+     选择器必须收在配图容器里：题干里的 MathJax 也是往同一文档塞 SVG，写成全局的
+     `svg text{...}` 会波及公式的字形。
+     正/斜体不在这里强制，由 SVG 上的 font-style 决定（下标要正体，无法用一条
+     CSS 规则同时表达"标签斜、下标正"并留出例外）。 */
+  .print-figure svg text, .thumb svg text{
+    font-family: 'STIX Two Text', 'Times New Roman', Times, serif;
+  }
+  .empty-hint{ color: var(--ink-faint); font-size:13px; padding: 40px 0; text-align:center; }
+
+  /* ---------- 打印队列 ---------- */
+  .queue h2{ font-size:14px; margin:0 0 4px; }
+  .queue .hint{ font-size:12px; color:var(--ink-faint); margin-bottom:12px; }
+  .queue-list{ flex:1; overflow-y:auto; }
+  .queue-item{
+    display:flex; align-items:flex-start; gap:8px;
+    padding:10px 8px; margin-bottom:6px; background:var(--paper-card);
+    border:1px solid var(--line-soft); border-radius:var(--radius-s);
+    cursor:grab;
+  }
+  .queue-item.dragging{ opacity:.4; }
+  .queue-item .handle{ color: var(--ink-faint); font-size:14px; line-height:1; padding-top:2px; }
+  .queue-item .idx{ font-size:12px; color:var(--ink-faint); width:18px; flex-shrink:0; padding-top:1px; }
+  .queue-item .info{ flex:1; min-width:0; }
+  .queue-item .info .num{ font-size:12px; font-weight:600; color:var(--ink); }
+  .queue-item .info .stem-preview{ font-size:11.5px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .queue-item .remove{ background:none; border:none; color:var(--ink-faint); font-size:15px; padding:0 2px; line-height:1; }
+  .queue-item .remove:hover{ color: var(--danger); }
+  .queue-footer{ padding-top:14px; border-top:1px solid var(--line); }
+
+  /* ---------- 打印区 ---------- */
+  #printView{ display:none; }
+  .print-toolbar{
+    padding: 14px 24px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    position:sticky; top:0; background:var(--paper); z-index:10;
+  }
+  /* 排版风格切换按钮组（通栏排版 / 左栏留白） */
+  .seg{
+    display:inline-flex; border:1px solid var(--line); border-radius:var(--radius-s);
+    overflow:hidden; background:var(--paper-card);
+  }
+  .seg-btn{ border:none; background:transparent; padding:8px 14px; font-size:13px; color:var(--ink-soft); }
+  .seg-btn + .seg-btn{ border-left:1px solid var(--line); }
+  .seg-btn:hover{ color:var(--ink); }
+  .seg-btn.active{ background:var(--accent-tint); color:var(--accent-dark); font-weight:600; }
+  #printSheet{
+    max-width: 800px; margin: 0 auto; padding: 36px 8px 80px;
+    font-family: var(--serif);
+  }
+  .print-problem{
+    break-inside: avoid; page-break-inside: avoid;
+    margin-bottom: 30px; padding-bottom: 22px;
+    border-bottom: 1px dashed var(--line);
+  }
+  .print-problem:last-child{ border-bottom:none; }
+  .print-problem .p-number{
+    font-family: var(--sans); font-size: 13px; font-weight:600; color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .print-problem .p-number .p-source{ font-weight:400; color: var(--ink-faint); }
+  .print-problem .p-stem{ font-size:15.5px; line-height:2; color:var(--ink); }
+  .print-problem .p-parts{ margin-top:8px; padding-left: 4px; }
+  .print-problem .p-parts .part-item{ font-size:15px; line-height:1.9; margin-bottom:4px; }
+  /* ---------- 配图画布（可拖动 / 可缩放） ----------
+     .figure-canvas 是每道题的"配图作图区"：它作为 .print-problem 的直接子元素，
+     宽度始终等于该题当前可用的排版范围——通栏排版下是整题宽度，
+     左栏留白下则被已有的 `.print-problem > *{grid-column:1}` 规则自动收窄到左半栏。
+     图形的拖动 / 缩放全部通过 JS 用相对该画布的百分比换算，
+     因此天然被限制在"题目的范围"内，切换排版风格时也无需额外处理。 */
+  .figure-canvas{
+    position: relative;
+    width: 100%;
+    margin-top: 14px;
+  }
+  /* 仅在编辑（非打印）状态下显示浅色虚线框，方便看清可拖动范围；打印视图本身不带边框 */
+  body:not(.mode-print) .figure-canvas{
+    border: 1px dashed var(--line-soft);
+    border-radius: 3px;
+  }
+
+  .print-figure{
+    position: absolute;
+    box-sizing: border-box;
+    touch-action: none;
+  }
+  .print-figure .fig-inner{
+    width:100%; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+  }
+  .print-figure svg{ width:100%; height:100%; flex:1; min-height:0; display:block; }
+  /* PNG 截图：外层格子本来就按图片自身宽高比算好了，object-fit:contain 再兜一层，
+     百分比换算的微小误差也不会把图拉变形 */
+  .print-figure img{ width:100%; height:100%; flex:1; min-height:0; display:block; object-fit:contain; }
+  .print-figure .cap{ font-family: var(--sans); font-size:11px; color:var(--ink-faint); margin-top:2px; flex-shrink:0; }
+
+  /* 编辑态交互样式：可拖动 + hover 高亮 + 缩放把手（打印时通过 .no-print 规则自动隐藏） */
+  body:not(.mode-print) .print-figure{ cursor: move; }
+  body:not(.mode-print) .print-figure:hover{ outline: 1.5px solid var(--accent); outline-offset: 2px; }
+  .print-figure.dragging-fig{ outline: 1.5px solid var(--accent-dark); outline-offset: 2px; z-index: 5; }
+  .fig-resize-handle{
+    position: absolute; right: -5px; bottom: -5px; width: 13px; height: 13px;
+    background: var(--accent); border: 2px solid #fff; border-radius: 50%;
+    cursor: nwse-resize; box-shadow: 0 0 0 1px var(--line);
+  }
+
+  /* ---------- 排版风格二：左栏留白 ----------
+     题号／题干／子问／配图全部排在左半栏，右半栏整块空出来给学生作答。
+     两种风格只差 body 上的 .style-left，切换时内容不用重建。 */
+  body.style-left .print-problem{
+    display:grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    column-gap: 8mm;
+    align-content: start;
+  }
+  body.style-left .print-problem > *{ grid-column: 1; min-width: 0; }
+  /* 注意：.figure-canvas 也是 .print-problem 的直接子元素，会被上面这条规则
+     自动收窄到左栏宽度，因此图形的拖动范围在左栏留白模式下自动只限于左栏，
+     不需要再单独覆盖图形尺寸百分比。 */
+
+  @media print{
+    body{ background:#fff; }
+    .no-print{ display:none !important; }
+    #selectView{ display:none !important; }
+    #printView{ display:block !important; }
+    #printSheet{ max-width:none; padding:0; margin:0; }
+    .print-problem{ margin-bottom:22px; padding-bottom:16px; }
+  }
+
+  @media (max-width: 980px){
+    .layout{ grid-template-columns: 1fr; }
+    .filters, .queue{ position:static; height:auto; border:none; border-bottom:1px solid var(--line); }
+  }
+</style>
+</head>
+<body class="mode-select">
+
+<!-- ============ 选题界面 ============ -->
+<div id="selectView">
+  <div class="topbar no-print">
+    <div>
+      <h1>错题重做 · 打印工具</h1>
+      <div class="sub" id="dataStatusLine">尚未加载题库</div>
+      <div class="bank-issues" id="bankIssues"></div>
+    </div>
+    <div class="topbar-right">
+      <span class="pill" id="queueCountPill">已选 0 题</span>
+      <button class="btn" id="reloadBtn" style="display:none;">重新加载数据</button>
+      <button class="btn btn-primary" id="printQueueBtn" disabled>生成打印页 →</button>
+    </div>
+  </div>
+
+  <div id="dropzone">
+    <h2>加载题库数据</h2>
+    <p>打开页面时会自动读取 <b>data/problems.jsonl</b>。<br>
+       自动加载失败时，也可以将该文件拖拽到此处，或点击选择文件</p>
+    <button class="btn btn-primary" id="chooseFileBtn">选择文件</button>
+    <input type="file" id="fileInput" accept=".jsonl,.json" multiple>
+    <div class="file-status">
+      <span id="problemsStatus" class="missing">○ 题库未加载</span>
+    </div>
+    <div class="autoload-note" id="autoLoadNote"></div>
+  </div>
+
+  <div class="layout" id="mainLayout" style="display:none;">
+    <aside class="col filters">
+      <div class="filter-block">
+        <div class="filter-title">学科</div>
+        <div id="subjectFilterList"></div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-title">标签</div>
+        <div id="tagFilterList" class="tag-list"></div>
+      </div>
+    </aside>
+
+    <main class="col">
+      <div class="list-header">
+        <span class="count" id="listCount">0 道题</span>
+        <button class="btn btn-sm" id="selectAllBtn">全选</button>
+      </div>
+      <div id="problemList"></div>
+    </main>
+
+    <aside class="col queue">
+      <h2>打印队列</h2>
+      <div class="hint">拖动 ⋮⋮ 调整顺序</div>
+      <div class="queue-list" id="queueList"></div>
+      <div class="queue-footer">
+        <button class="btn btn-primary" id="printQueueBtn2" style="width:100%;" disabled>生成打印页 →</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- ============ 打印视图 ============ -->
+<div id="printView">
+  <div class="print-toolbar no-print">
+    <button class="btn" id="backToSelectBtn">← 返回选题</button>
+    <div class="seg" id="layoutSwitch" role="group" aria-label="排版风格">
+      <button class="seg-btn active" data-layout="center" title="题干和配图占满整幅宽度">通栏排版</button>
+      <button class="seg-btn" data-layout="left" title="题目全部排在左半边，右半边留白给学生作答">左栏留白</button>
+    </div>
+    <button class="btn btn-primary" id="doPrintBtn">打印 / 保存 PDF</button>
+    <span class="pill" id="printCountPill">共 0 题</span>
+  </div>
+  <div id="printSheet"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- 状态 ----------------
+  const state = {
+    problems: null,       // { problems:[...] }，题库加载后才有
+    problemsById: new Map(),
+    bankIssues: [],       // 加载题库时发现的问题（坏行、重复 id…），非空就要显示出来
+    activeSubject: null,  // null = 全部
+    activeTags: new Set(),
+    queue: []             // ordered array of problem id
+  };
+
+  const SUBJECT_LABELS = { math: "数学", physics: "物理", chemistry: "化学" };
+  function subjectLabel(key){ return SUBJECT_LABELS[key] || key; }
+
+  // 打开页面时自动加载的题库路径。目录结构见 README 第一节。
+  const DATA_PATH = "data/problems.jsonl";
+
+  // ---------------- DOM 引用 ----------------
+  const $ = (sel) => document.querySelector(sel);
+  const dropzone = $("#dropzone");
+  const fileInput = $("#fileInput");
+  const chooseFileBtn = $("#chooseFileBtn");
+  const problemsStatus = $("#problemsStatus");
+  const dataStatusLine = $("#dataStatusLine");
+  const bankIssuesEl = $("#bankIssues");
+  const mainLayout = $("#mainLayout");
+  const reloadBtn = $("#reloadBtn");
+  const autoLoadNote = $("#autoLoadNote");
+
+  const subjectFilterList = $("#subjectFilterList");
+  const tagFilterList = $("#tagFilterList");
+  const problemListEl = $("#problemList");
+  const listCountEl = $("#listCount");
+  const selectAllBtn = $("#selectAllBtn");
+  const queueListEl = $("#queueList");
+  const queueCountPill = $("#queueCountPill");
+  const printQueueBtn = $("#printQueueBtn");
+  const printQueueBtn2 = $("#printQueueBtn2");
+
+  const selectView = $("#selectView");
+  const printView = $("#printView");
+  const printSheet = $("#printSheet");
+  const printCountPill = $("#printCountPill");
+  const backToSelectBtn = $("#backToSelectBtn");
+  const doPrintBtn = $("#doPrintBtn");
+  const layoutSwitch = $("#layoutSwitch");
+
+  // ---------------- 文件加载 ----------------
+  // 题库是 JSONL：一行一道题，一行一个 JSON 对象。加新题就是往文件末尾追加一行，
+  // 文件其余部分一个字都不用动；解析出错也能定位到具体哪一行。
+  // 为兼容旧的整份 JSON（{ "problems": [...] } 形状），那种也照收。
+  //
+  // 返回 { problems, errors, warnings }：坏行和重复 id 都带出来报给界面。
+  // 坏行意味着少一道题，不能只写进控制台。
+  function parseBank(text){
+    const errors = [];
+    const warnings = [];
+
+    // 旧格式：整份 JSON、顶层带 problems 数组。
+    // JSONL 是多行多个对象，整体 JSON.parse 必然失败，所以这里能解析成功就不是 JSONL。
+    const whole = text.trim();
+    if(whole.startsWith("{")){
+      try{
+        const data = JSON.parse(whole);
+        if(data && Array.isArray(data.problems)) return { problems: data.problems, errors, warnings };
+      }catch(err){ /* 不是整份 JSON，按 JSONL 继续 */ }
+    }
+
+    const problems = [];
+    const seen = new Map();   // id -> { idx, lineNo }，用来查重复
+    text.split(/\r?\n/).forEach((rawLine, i) => {
+      const line = rawLine.trim();
+      if(!line) return;                              // 空行（含文件末尾的换行）跳过
+      const lineNo = i + 1;
+
+      let obj;
+      try{ obj = JSON.parse(line); }
+      catch(err){ errors.push(`第 ${lineNo} 行不是合法 JSON：${err.message}`); return; }
+      if(!obj || typeof obj !== "object" || Array.isArray(obj)){
+        errors.push(`第 ${lineNo} 行不是一个题目对象`); return;
+      }
+
+      const id = obj.id;
+      if(typeof id !== "string" || !id){
+        // 打印队列的勾选和配图位置都是拿 id 记录的，缺了这题勾不上
+        warnings.push(`第 ${lineNo} 行没有 id，这题无法被勾进打印队列`);
+      }else if(seen.has(id)){
+        // 同一个 id 出现两次：内容用后一行的（多半是修好的新版），
+        // 位置留在第一次出现的地方，免得题目顺序莫名跳动。
+        const prev = seen.get(id);
+        warnings.push(`id「${id}」重复（第 ${prev.lineNo} 行、第 ${lineNo} 行），只保留一处`);
+        problems[prev.idx] = obj;
+        prev.lineNo = lineNo;
+        return;
+      }else{
+        seen.set(id, { idx: problems.length, lineNo });
+      }
+      problems.push(obj);
+    });
+
+    return { problems, errors, warnings };
+  }
+
+  // 把解析结果写进 state。解析出 0 道题时返回 false，由调用方决定怎么报错。
+  function acceptProblems(result, sourceName){
+    state.bankIssues = result.errors.concat(result.warnings);
+    if(!result.problems.length) return false;
+
+    state.problems = { problems: result.problems };
+    state.problemsById = new Map(
+      result.problems.filter(p => typeof p.id === "string" && p.id).map(p => [p.id, p])
+    );
+    if(state.bankIssues.length){
+      console.warn(`题库 ${sourceName} 有 ${state.bankIssues.length} 处问题：`);
+      state.bankIssues.forEach(msg => console.warn("  " + msg));
+    }
+    problemsStatus.textContent = `● 已加载 ${result.problems.length} 题`;
+    problemsStatus.className = "ok";
+    return true;
+  }
+
+  // 题库里的问题（坏行、重复 id…）在顶栏报出来。界面上只列前 3 条，
+  // 免得把顶栏撑开；完整的在控制台里。
+  function renderBankIssues(){
+    const shown = state.bankIssues.slice(0, 3);
+    bankIssuesEl.textContent = shown.join("\n")
+      + (state.bankIssues.length > shown.length
+          ? `\n…其余 ${state.bankIssues.length - shown.length} 处见浏览器控制台` : "");
+    bankIssuesEl.style.display = state.bankIssues.length ? "block" : "none";
+  }
+
+  function handleFiles(fileList){
+    Array.from(fileList).forEach(file => {
+      if(!/\.(jsonl|json)$/i.test(file.name)){ return; }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = parseBank(String(e.target.result));
+        if(!acceptProblems(result, file.name)){
+          alert(`文件 ${file.name} 里没有解析出任何题目。`
+            + (result.errors.length ? "\n" + result.errors.slice(0, 5).join("\n") : ""));
+          return;
+        }
+        tryInit();
+      };
+      reader.readAsText(file, "utf-8");
+    });
+  }
+
+  // 打开页面时自动加载题库，免去每次手动拖拽。
+  // 若浏览器禁止读取（典型情况：以 file:// 直接打开页面），则回落到
+  // 拖拽 / 选择文件的方式，并在拖拽区给出说明。
+  async function autoLoadData(){
+    try{
+      const res = await fetch(DATA_PATH, { cache: "no-store" });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      if(!acceptProblems(parseBank(await res.text()), DATA_PATH)) throw new Error("没有解析出任何题目");
+    }catch(err){
+      console.warn(`自动加载 ${DATA_PATH} 失败：`, err);
+    }
+
+    if(state.problems){
+      autoLoadNote.style.display = "none";
+      tryInit();
+      return;
+    }
+
+    const isFileProtocol = location.protocol === "file:";
+    autoLoadNote.innerHTML = `自动加载 <b>${DATA_PATH}</b> 失败。`
+      + (isFileProtocol
+          ? `<br>浏览器不允许 <code>file://</code> 页面读取本地文件。请在项目根目录执行
+             <code>./scripts/start.sh</code> 起本地服务，它会自动打开页面；`
+          : `<br>请确认 <code>${DATA_PATH}</code> 存在；`)
+      + `<br>也可以继续用下面的方式手动加载。`;
+    autoLoadNote.style.display = "block";
+    // 文件在、但一行都没解析出来时，顶栏把原因列出来（否则只剩"加载失败"四个字）
+    renderBankIssues();
+  }
+
+  function tryInit(){
+    if(state.problems){
+      dropzone.style.display = "none";
+      mainLayout.style.display = "grid";
+      reloadBtn.style.display = "inline-block";
+      dataStatusLine.textContent = state.bankIssues.length
+        ? `已加载 ${state.problems.problems.length} 道题目 · 题库有 ${state.bankIssues.length} 处问题`
+        : `已加载 ${state.problems.problems.length} 道题目`;
+      // 界面上只列前几条，避免把顶栏撑开；控制台里是完整的。
+      renderBankIssues();
+      renderSubjectFilters();
+      renderTagFilters();
+      renderProblemList();
+      renderQueue();
+    }
+  }
+
+  chooseFileBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => handleFiles(e.target.files));
+
+  ["dragenter","dragover"].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+  });
+  ["dragleave","drop"].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("dragover"); });
+  });
+  dropzone.addEventListener("drop", (e) => {
+    if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  });
+
+  reloadBtn.addEventListener("click", () => {
+    state.problems = null; state.problemsById = new Map(); state.bankIssues = [];
+    state.activeSubject = null; state.activeTags.clear(); state.queue = [];
+    problemsStatus.textContent = "○ 题库未加载"; problemsStatus.className = "missing";
+    dataStatusLine.textContent = "尚未加载题库";
+    bankIssuesEl.style.display = "none";
+    dropzone.style.display = "block";
+    mainLayout.style.display = "none";
+    reloadBtn.style.display = "none";
+    renderQueue();
+    // 重新读一次题库，读不到就停在拖拽区让用户手动加载
+    autoLoadData();
+  });
+
+  // ---------------- 筛选渲染 ----------------
+  // 学科与标签都不再依赖外部的词表文件，全部从题库里现场聚合：
+  // 统计每个取值下的题目数，按题目数降序排列，数量相同的按首次出现顺序，
+  // 保证同一份数据每次渲染出来顺序都一样（不随对象键顺序漂移）。
+  function countBy(items, keyOf, filter){
+    const counts = new Map();
+    items.forEach(item => {
+      if(filter && !filter(item)) return;
+      const keys = keyOf(item);
+      (Array.isArray(keys) ? keys : [keys]).forEach(k => {
+        if(k === null || k === undefined || k === "") return;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      });
+    });
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }
+
+  function renderSubjectFilters(){
+    const subjects = countBy(state.problems.problems, p => p.subject);
+
+    let html = `<div class="subject-item ${state.activeSubject===null?'active':''}" data-subject="">
+        <span>全部学科</span><span class="count">${state.problems.problems.length}</span>
+      </div>`;
+    subjects.forEach(([sub, count]) => {
+      html += `<div class="subject-item ${state.activeSubject===sub?'active':''}" data-subject="${sub}">
+          <span>${subjectLabel(sub)}</span><span class="count">${count}</span>
+        </div>`;
+    });
+    subjectFilterList.innerHTML = html;
+    subjectFilterList.querySelectorAll(".subject-item").forEach(el => {
+      el.addEventListener("click", () => {
+        state.activeSubject = el.dataset.subject || null;
+        state.activeTags.clear();
+        renderSubjectFilters(); renderTagFilters(); renderProblemList();
+      });
+    });
+  }
+
+  function renderTagFilters(){
+    // 标签候选 = 当前学科范围内题目实际用到的标签，题目上一旦打了新标签，
+    // 这里会自动出现，不需要再往别处登记。
+    const tags = countBy(
+      state.problems.problems,
+      p => (p.metadata && p.metadata.tags) || [],
+      p => !state.activeSubject || p.subject === state.activeSubject
+    ).map(([tag]) => tag);
+    if(tags.length === 0){
+      tagFilterList.innerHTML = `<span style="font-size:12px;color:var(--ink-faint);">无标签</span>`;
+      return;
+    }
+    tagFilterList.innerHTML = tags.map(t =>
+      `<span class="tag-chip ${state.activeTags.has(t)?'active':''}" data-tag="${t}">${t}</span>`
+    ).join("");
+    tagFilterList.querySelectorAll(".tag-chip").forEach(el => {
+      el.addEventListener("click", () => {
+        const t = el.dataset.tag;
+        if(state.activeTags.has(t)) state.activeTags.delete(t); else state.activeTags.add(t);
+        renderTagFilters(); renderProblemList();
+      });
+    });
+  }
+
+  // ---------------- 题目列表渲染 ----------------
+  function getFilteredProblems(){
+    return state.problems.problems.filter(p => {
+      if(state.activeSubject && p.subject !== state.activeSubject) return false;
+      if(state.activeTags.size > 0){
+        const tags = (p.metadata && p.metadata.tags) || [];
+        const hit = tags.some(t => state.activeTags.has(t));
+        if(!hit) return false;
+      }
+      return true;
+    });
+  }
+
+  function problemNumberLabel(p){
+    const num = p.source && p.source.problem_number;
+    if(num){ return /题|号/.test(num) ? num : `第${num}题`; }
+    return "无原始题号";
+  }
+
+  function sourceLabel(p){
+    return ((p.source || {}).material_name) || "";
+  }
+
+  function renderProblemList(){
+    const list = getFilteredProblems();
+    listCountEl.textContent = `${list.length} 道题`;
+    updateSelectAllBtn(list);
+    if(list.length === 0){
+      problemListEl.innerHTML = `<div class="empty-hint">没有符合条件的题目</div>`;
+      return;
+    }
+    problemListEl.innerHTML = list.map(p => {
+      const tags = (p.metadata && p.metadata.tags) || [];
+      // 备注只在选题页给家长/出题的人看（多为提取时的存疑点），打印页不带过去。
+      const notes = (p.metadata && p.metadata.notes) || "";
+      const stemPreview = (p.text && p.text.stem) || "";
+      const figures = p.figures || [];
+      const thumbs = figures.slice(0,3).map(f => `<div class="thumb">${figureMarkup(f)}</div>`).join("");
+      const checked = state.queue.includes(p.id) ? "checked" : "";
+      const src = sourceLabel(p);
+      return `
+        <div class="problem-card" data-id="${p.id}">
+          <input type="checkbox" ${checked} data-id="${p.id}">
+          <div class="body">
+            <div class="meta-row">
+              <span class="badge-num">${problemNumberLabel(p)}</span>
+              <span class="badge-subject">${subjectLabel(p.subject)}</span>
+              ${tags.map(t => `<span class="badge-tag">${t}</span>`).join("")}
+              ${src ? `<span class="badge-source">${src}</span>` : ""}
+            </div>
+            <div class="stem">${stemPreview}</div>
+            ${thumbs ? `<div class="thumb-row">${thumbs}</div>` : ""}
+            ${notes ? `<div class="notes"><span class="notes-label">备注</span>${notes}</div>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    problemListEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.id;
+        if(cb.checked){ if(!state.queue.includes(id)) state.queue.push(id); }
+        else { state.queue = state.queue.filter(x => x !== id); }
+        renderQueue();
+      });
+    });
+
+    sanitizeSvgs(problemListEl);
+    typeset(problemListEl);
+  }
+
+  // ---------------- 全选 / 取消全选（针对当前筛选结果） ----------------
+  function updateSelectAllBtn(list){
+    if(!list || list.length === 0){
+      selectAllBtn.textContent = "全选";
+      selectAllBtn.disabled = true;
+      return;
+    }
+    selectAllBtn.disabled = false;
+    const allSelected = list.every(p => state.queue.includes(p.id));
+    selectAllBtn.textContent = allSelected ? "取消全选" : "全选";
+  }
+
+  selectAllBtn.addEventListener("click", () => {
+    const list = getFilteredProblems();
+    if(list.length === 0) return;
+    const allSelected = list.every(p => state.queue.includes(p.id));
+    if(allSelected){
+      // 取消全选：从队列中移除当前筛选结果中的题目
+      const idsToRemove = new Set(list.map(p => p.id));
+      state.queue = state.queue.filter(id => !idsToRemove.has(id));
+    } else {
+      // 全选：将当前筛选结果中尚未加入队列的题目追加进去
+      list.forEach(p => { if(!state.queue.includes(p.id)) state.queue.push(p.id); });
+    }
+    renderProblemList();
+    renderQueue();
+  });
+
+  // ---------------- 打印队列渲染（含拖拽排序） ----------------
+  let dragSrcIndex = null;
+
+  function renderQueue(){
+    queueCountPill.textContent = `已选 ${state.queue.length} 题`;
+    const enabled = state.queue.length > 0;
+    printQueueBtn.disabled = !enabled;
+    printQueueBtn2.disabled = !enabled;
+
+    if(state.queue.length === 0){
+      queueListEl.innerHTML = `<div class="empty-hint" style="padding:20px 0;">尚未选题</div>`;
+      return;
+    }
+    queueListEl.innerHTML = state.queue.map((id, idx) => {
+      const p = state.problemsById.get(id);
+      if(!p) return "";
+      const stem = (p.text && p.text.stem) || "";
+      return `
+        <div class="queue-item" draggable="true" data-idx="${idx}">
+          <span class="handle">⋮⋮</span>
+          <span class="idx">${idx+1}</span>
+          <div class="info">
+            <div class="num">${problemNumberLabel(p)} · ${subjectLabel(p.subject)}</div>
+            <div class="stem-preview">${stem.replace(/<[^>]+>/g,"")}</div>
+          </div>
+          <button class="remove" data-id="${id}" title="移除">×</button>
+        </div>`;
+    }).join("");
+
+    queueListEl.querySelectorAll(".remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.queue = state.queue.filter(x => x !== btn.dataset.id);
+        renderQueue();
+        renderProblemList(); // 同步取消勾选状态
+      });
+    });
+
+    queueListEl.querySelectorAll(".queue-item").forEach(item => {
+      item.addEventListener("dragstart", () => {
+        dragSrcIndex = Number(item.dataset.idx);
+        item.classList.add("dragging");
+      });
+      item.addEventListener("dragend", () => item.classList.remove("dragging"));
+      item.addEventListener("dragover", (e) => e.preventDefault());
+      item.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const targetIdx = Number(item.dataset.idx);
+        if(dragSrcIndex === null || dragSrcIndex === targetIdx) return;
+        const moved = state.queue.splice(dragSrcIndex, 1)[0];
+        state.queue.splice(targetIdx, 0, moved);
+        dragSrcIndex = null;
+        renderQueue();
+      });
+    });
+  }
+
+  // ---------------- SVG / MathJax 处理 ----------------
+  function sanitizeSvgs(root){
+    root.querySelectorAll("svg").forEach(svg => {
+      svg.removeAttribute("width");
+      svg.removeAttribute("height");
+      if(!svg.getAttribute("viewBox")){
+        svg.setAttribute("viewBox", "0 0 300 300");
+      }
+    });
+  }
+
+  function typeset(root){
+    if(window.MathJax && window.MathJax.typesetPromise){
+      window.MathJax.typesetPromise([root]).catch(()=>{});
+    }
+  }
+
+  // ---------------- 配图自由布局（拖动位置 / 缩放大小） ----------------
+  // 每张图的位置与尺寸都以“相对画布的百分比”保存在 state.figureLayout 中，
+  // key 为 `${problemId}#${figureIndex}`。由于百分比始终相对当前画布自身的
+  // 宽高计算，通栏排版切换到左栏留白时画布本身变窄，图形会自动保持相对位置，
+  // 不需要为两种排版分别存一份坐标，也天然保证了“只能在题目范围内拖动”。
+  if(!state.figureLayout) state.figureLayout = {};
+  // 用户手动拖动/缩放过的图，记一下，之后重新生成打印页时就不再自动重排它。
+  if(!state.figureLayoutCustom) state.figureLayoutCustom = {};
+  function figureLayoutKey(problemId, figIdx){ return `${problemId}#${figIdx}`; }
+
+  // 配图有两种格式：手绘矢量图（f.svg）和照片截图（f.png = {data, width, height}，base64 内联）。
+  // 缩略图和打印页都只经这两个函数取图，别在别处直接读 f.svg。
+  function figureMarkup(f){
+    if(f && f.png && f.png.data){
+      return `<img src="data:image/png;base64,${f.png.data}" alt="">`;
+    }
+    return (f && f.svg) || "";
+  }
+
+  // 每张图自身的宽高比：PNG 直接读记录下来的 width/height，SVG 从 viewBox 里读。
+  function figureAspect(f){
+    if(f && f.png && f.png.width > 0 && f.png.height > 0) return f.png.width / f.png.height;
+    return parseSvgAspect((f && f.svg) || "");
+  }
+
+  // 从 svg 的 viewBox 里读出它自身的宽高比，找不到就按正方形兜底。
+  function parseSvgAspect(svgMarkup){
+    const m = /viewBox\s*=\s*"([^"]+)"/i.exec(svgMarkup || "");
+    if(m){
+      const nums = m[1].trim().split(/[\s,]+/).map(Number);
+      if(nums.length === 4 && nums[2] > 0 && nums[3] > 0) return nums[2] / nums[3];
+    }
+    return 1;
+  }
+
+  // 画布默认高度：图多需要换行时给更多纵向空间（单位 mm，随打印页固定，不随栏宽变化）。
+  function defaultCanvasHeightMm(count){
+    const cols = Math.min(count, 3);
+    const rows = Math.ceil(count / cols);
+    return rows <= 1 ? 46 : rows * 46 + (rows - 1) * 8;
+  }
+
+  function clampLayout(L){
+    L.w = Math.min(Math.max(L.w, 12), 100);
+    L.h = Math.min(Math.max(L.h, 12), 100);
+    L.x = Math.min(Math.max(L.x, 0), 100 - L.w);
+    L.y = Math.min(Math.max(L.y, 0), 100 - L.h);
+    return L;
+  }
+
+  function buildFiguresHtml(problemId, figures){
+    if(!figures.length) return "";
+    const canvasH = defaultCanvasHeightMm(figures.length);
+    const items = figures.map((f, i) => {
+      const key = figureLayoutKey(problemId, i);
+      const L = state.figureLayout[key];
+      // 还没有算出具体位置前先隐藏，避免挤成一团的默认样式闪一下；
+      // 真正的位置由渲染后的 layoutFigureCanvas() 按图片自身宽高比算出来。
+      const style = L
+        ? `left:${L.x}%; top:${L.y}%; width:${L.w}%; height:${L.h}%;`
+        : `visibility:hidden; width:10%; height:10%;`;
+      return `
+        <div class="print-figure" data-key="${key}" data-aspect="${figureAspect(f)}" style="${style}">
+          <div class="fig-inner">
+            ${figureMarkup(f)}
+            ${f.caption ? `<div class="cap">${f.caption}</div>` : ""}
+          </div>
+          <div class="fig-resize-handle no-print" title="拖动调整大小"></div>
+        </div>`;
+    }).join("");
+    return `<div class="figure-canvas" style="height:${canvasH}mm;">${items}</div>`;
+  }
+
+  // 按每张图“自己的宽高比”摆放（SVG 读 viewBox、PNG 读 width/height），而不是强行拉伸铺满整格/整行。
+  // 多图时先分行（每行最多 3 张），行内再按各自比例做 contain 式适配并居中；
+  // 用户手动调整过的图（state.figureLayoutCustom）直接沿用已保存的位置，不再重排。
+  function layoutFigureCanvas(canvasEl){
+    const figureEls = Array.from(canvasEl.querySelectorAll(".print-figure"));
+    if(!figureEls.length) return;
+    const rect = canvasEl.getBoundingClientRect();
+    if(rect.width === 0 || rect.height === 0) return; // 画布还没实际渲染出来，量不到尺寸
+
+    const cols = Math.min(figureEls.length, 3);
+    const rows = Math.ceil(figureEls.length / cols);
+    const gapPx = 10;
+    const rowH = (rect.height - gapPx * (rows - 1)) / rows;
+
+    figureEls.forEach((el, i) => {
+      const key = el.dataset.key;
+
+      if(state.figureLayoutCustom[key] && state.figureLayout[key]){
+        const L = state.figureLayout[key];
+        el.style.visibility = "";
+        el.style.left = L.x + "%"; el.style.top = L.y + "%";
+        el.style.width = L.w + "%"; el.style.height = L.h + "%";
+        return;
+      }
+
+      const row = Math.floor(i / cols);
+      const rowStart = row * cols;
+      const rowCount = Math.min(cols, figureEls.length - rowStart);
+      const cellW = (rect.width - gapPx * (rowCount - 1)) / rowCount;
+
+      const aspect = Number(el.dataset.aspect) > 0 ? Number(el.dataset.aspect) : 1;
+
+      // “contain”式适配：先按格子宽度换算高度，超出行高就反过来按行高换算宽度，
+      // 图形本身不被拉伸变形，也不会被强行撑满整行。
+      let w = cellW, h = cellW / aspect;
+      if(h > rowH){ h = rowH; w = rowH * aspect; }
+
+      const col = i - rowStart;
+      const cellX = col * (cellW + gapPx);
+      const cellY = row * (rowH + gapPx);
+      // 打印页面里图形一律左对齐：贴着所在格子的左边线摆放，不再水平居中。
+      // 竖直方向仍做居中，避免同一行里高低不一的图形上下错位。
+      const x = cellX;
+      const y = cellY + (rowH - h) / 2;
+
+      const L = {
+        x: x / rect.width * 100,
+        y: y / rect.height * 100,
+        w: w / rect.width * 100,
+        h: h / rect.height * 100
+      };
+      state.figureLayout[key] = L;
+      el.style.visibility = "";
+      el.style.left = L.x + "%"; el.style.top = L.y + "%";
+      el.style.width = L.w + "%"; el.style.height = L.h + "%";
+    });
+  }
+
+  // 给某道题渲染完成后的所有 .print-figure 元素绑定拖动 / 缩放事件。
+  function initFigureInteractions(root){
+    root.querySelectorAll(".print-figure").forEach(el => {
+      const canvas = el.parentElement;
+      const key = el.dataset.key;
+      const handle = el.querySelector(".fig-resize-handle");
+
+      function applyStyle(L){
+        el.style.left = L.x + "%";
+        el.style.top = L.y + "%";
+        el.style.width = L.w + "%";
+        el.style.height = L.h + "%";
+      }
+
+      // 拖动移动位置（在图形上按下，但不包括缩放把手）
+      el.addEventListener("pointerdown", (e) => {
+        if(e.target === handle) return;
+        e.preventDefault();
+        const canvasRect = canvas.getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const L0 = { ...state.figureLayout[key] };
+        el.setPointerCapture(e.pointerId);
+        el.classList.add("dragging-fig");
+
+        function onMove(ev){
+          state.figureLayoutCustom[key] = true;
+          const dxPct = (ev.clientX - startX) / canvasRect.width * 100;
+          const dyPct = (ev.clientY - startY) / canvasRect.height * 100;
+          const L = clampLayout({ x: L0.x + dxPct, y: L0.y + dyPct, w: L0.w, h: L0.h });
+          state.figureLayout[key] = L;
+          applyStyle(L);
+        }
+        function onUp(){
+          el.releasePointerCapture(e.pointerId);
+          el.classList.remove("dragging-fig");
+          el.removeEventListener("pointermove", onMove);
+          el.removeEventListener("pointerup", onUp);
+        }
+        el.addEventListener("pointermove", onMove);
+        el.addEventListener("pointerup", onUp);
+      });
+
+      // 缩放大小（拖动右下角把手；按住 Shift 可保持宽高比）
+      handle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const canvasRect = canvas.getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const L0 = { ...state.figureLayout[key] };
+        const aspect = L0.w / L0.h;
+        handle.setPointerCapture(e.pointerId);
+
+        function onMove(ev){
+          state.figureLayoutCustom[key] = true;
+          const dxPct = (ev.clientX - startX) / canvasRect.width * 100;
+          const dyPct = (ev.clientY - startY) / canvasRect.height * 100;
+          let w = L0.w + dxPct;
+          let h = L0.h + dyPct;
+          if(ev.shiftKey) h = w / aspect;
+          const L = clampLayout({ x: L0.x, y: L0.y, w, h });
+          state.figureLayout[key] = L;
+          applyStyle(L);
+        }
+        function onUp(){
+          handle.releasePointerCapture(e.pointerId);
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+        }
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+      });
+    });
+  }
+
+  function buildPrintSheet(){
+    if(state.queue.length === 0){
+      printSheet.innerHTML = `<div class="empty-hint">打印队列为空，请返回选题</div>`;
+      printCountPill.textContent = "共 0 题";
+      return;
+    }
+    printCountPill.textContent = `共 ${state.queue.length} 题`;
+    printSheet.innerHTML = state.queue.map(id => {
+      const p = state.problemsById.get(id);
+      if(!p) return "";
+      const stem = (p.text && p.text.stem) || "";
+      const parts = (p.text && p.text.parts) || [];
+      const figures = p.figures || [];
+      const figuresHtml = buildFiguresHtml(p.id, figures);
+      const partsHtml = parts.length ? `
+        <div class="p-parts">
+          ${parts.map((part, i) => `<div class="part-item">(${i+1}) ${typeof part === "string" ? part : (part.text||"")}</div>`).join("")}
+        </div>` : "";
+      const src = sourceLabel(p);
+      return `
+        <div class="print-problem">
+          <div class="p-number">${problemNumberLabel(p)}　${subjectLabel(p.subject)}${src ? `　<span class="p-source">（${src}）</span>` : ""}</div>
+          <div class="p-stem">${stem}</div>
+          ${partsHtml}
+          ${figuresHtml}
+        </div>`;
+    }).join("");
+
+    sanitizeSvgs(printSheet);
+    typeset(printSheet);
+    printSheet.querySelectorAll(".figure-canvas").forEach(layoutFigureCanvas);
+    initFigureInteractions(printSheet);
+  }
+
+
+  // ---------------- 排版风格切换 ----------------
+  // center = 通栏排版（题干与配图占满整幅宽度），left = 左栏留白（内容排在左半边，右半边留白）
+  const LAYOUTS = ["center", "left"];
+  let printLayout = "center";
+
+  function setPrintLayout(layout){
+    if(LAYOUTS.indexOf(layout) === -1) layout = "center";
+    printLayout = layout;
+    document.body.classList.toggle("style-left", layout === "left");
+    layoutSwitch.querySelectorAll(".seg-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.layout === layout);
+    });
+    // 左栏留白下画布变窄了，没被用户手动调整过的图重新按新宽度做一次比例适配
+    // （手动拖动/缩放过的图会被 layoutFigureCanvas 内部的 custom 标记跳过，位置不受影响）。
+    if(printSheet){
+      printSheet.querySelectorAll(".figure-canvas").forEach(layoutFigureCanvas);
+    }
+  }
+
+  layoutSwitch.querySelectorAll(".seg-btn").forEach(btn => {
+    btn.addEventListener("click", () => setPrintLayout(btn.dataset.layout));
+  });
+  setPrintLayout(printLayout);
+
+  function goToPrintView(){
+    // 先让 #printView 真正显示出来，buildPrintSheet() 里给每张图按 viewBox
+    // 比例量算尺寸时要用 getBoundingClientRect()，容器还是 display:none 的话量到的全是 0。
+    document.body.classList.remove("mode-select");
+    document.body.classList.add("mode-print");
+    selectView.style.display = "none";
+    printView.style.display = "block";
+    buildPrintSheet();
+    window.scrollTo(0,0);
+  }
+
+  function goToSelectView(){
+    document.body.classList.remove("mode-print");
+    document.body.classList.add("mode-select");
+    printView.style.display = "none";
+    selectView.style.display = "block";
+  }
+
+  printQueueBtn.addEventListener("click", goToPrintView);
+  printQueueBtn2.addEventListener("click", goToPrintView);
+  backToSelectBtn.addEventListener("click", goToSelectView);
+  doPrintBtn.addEventListener("click", () => window.print());
+
+  // 初始状态：打印视图默认隐藏（screen 下由 JS 控制，而非只靠 CSS，避免直接 Ctrl+P 时选题界面残留）
+  printView.style.display = "none";
+
+  // 打开页面即尝试自动加载题库
+  autoLoadData();
+
+})();
+</script>
+</body>
+</html>
